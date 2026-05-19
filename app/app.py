@@ -239,6 +239,18 @@ def health():
         "requests": request_count,
         "failures": failure_count
     }), 200
+    
+    
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    print("GitHub Webhook Received:")
+    print(data)
+
+    return jsonify({
+        "status": "success",
+        "message": "Webhook received"
+    }), 200
 
 @app.route('/fail')
 def force_fail():
