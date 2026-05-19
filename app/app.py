@@ -8,8 +8,10 @@ app = Flask(__name__)
 
 request_count = 0
 failure_count = 0
-healing_history = []  # Track healing events
-current_healing = None  # Track current healing process
+healing_history = []
+healed_successfully = 0
+current_failure = None  # Track if we're currently in a failure state
+last_failure_time = None
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -89,7 +91,6 @@ HTML_TEMPLATE = '''
             margin-top: 5px;
         }
         
-        /* Healing visualization */
         .healing-section {
             margin: 20px 0;
             padding: 15px;
@@ -147,7 +148,6 @@ HTML_TEMPLATE = '''
             color: #666;
         }
         
-        /* Healing timeline */
         .timeline {
             margin: 20px 0;
             max-height: 300px;
@@ -176,7 +176,6 @@ HTML_TEMPLATE = '''
             margin-left: 10px;
         }
         
-        /* Progress bar */
         .progress-container {
             margin: 15px 0;
         }
@@ -206,6 +205,7 @@ HTML_TEMPLATE = '''
             cursor: pointer;
             font-size: 14px;
             margin-right: 10px;
+            margin-bottom: 10px;
         }
         button:hover {
             background: #0056b3;
@@ -254,12 +254,24 @@ HTML_TEMPLATE = '''
             border-radius: 3px;
             font-size: 13px;
         }
+        .note {
+            background: #fff3cd;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-size: 12px;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Pipeline Monitor</h1>
         <div class="subtitle">CI/CD with healing visualization</div>
+        
+        <div class="note">
+            <strong>Note:</strong> Healing happens automatically when failure occurs. Refresh the page to see healing progress.
+        </div>
         
         <div class="alert alert-{{ 'danger' if is_failure and not healing_active else 'warning' if healing_active else 'success' }}">
             <strong>
@@ -274,15 +286,13 @@ HTML_TEMPLATE = '''
             {{ message }}
         </div>
         
-        <!-- Healing Visualization -->
-        {% if healing_active or show_healing_process %}
+        {% if healing_active or healing_completed %}
         <div class="healing-section">
             <div class="healing-title">
                 Healing Process 
                 <span class="healing-badge">Auto-retry active</span>
             </div>
             
-            <!-- Retry attempts visualization -->
             <div class="retry-container">
                 <div class="retry-step {% if retry_count >= 1 %}completed{% elif healing_active and retry_attempt == 1 %}active{% endif %}">
                     <div class="retry-number">1</div>
@@ -300,7 +310,6 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
             
-            <!-- Progress bar for healing -->
             <div class="progress-container">
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: {{ healing_progress }}%;">
@@ -309,7 +318,6 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
             
-            <!-- Current retry info -->
             <div class="retry-info">
                 <strong>Status:</strong> {{ retry_status }}<br>
                 <strong>Action:</strong> {{ current_action }}<br>
@@ -318,10 +326,9 @@ HTML_TEMPLATE = '''
         </div>
         {% endif %}
         
-        <!-- Healing timeline -->
         {% if healing_history %}
         <div class="healing-section">
-            <div class="healing-title">Healing Events (Last 5)</div>
+            <div class="healing-title">Recent Healing Events</div>
             <div class="timeline">
                 {% for event in healing_history %}
                 <div class="timeline-item">
@@ -349,7 +356,7 @@ HTML_TEMPLATE = '''
             </div>
             <div class="stat-box">
                 <div class="stat-number">{{ healed_count }}</div>
-                <div class="stat-label">Healed successfully</div>
+                <div class="stat-label">Healed</div>
             </div>
             <div class="stat-box">
                 <div class="stat-number">{{ success_rate }}%</div>
@@ -357,22 +364,11 @@ HTML_TEMPLATE = '''
             </div>
         </div>
         
-        <div>
-            <h3 style="font-size: 16px; margin: 15px 0 10px 0;">How healing works</h3>
-            <ul class="feature-list">
-                <li>Step 1: Detect failure</li>
-                <li>Step 2: Auto-retry (up to 3 times)</li>
-                <li>Step 3: Log healing event</li>
-                <li>Step 4: Update statistics</li>
-                <li>Step 5: Continue monitoring</li>
-            </ul>
-        </div>
-        
         <div style="margin: 20px 0;">
-            <button onclick="location.reload()">Refresh</button>
-            <button class="button-red" onclick="forceFailure()">Trigger failure</button>
-            <button onclick="checkHealth()">Health check</button>
-            <button class="button-green" onclick="clearHistory()">Clear history</button>
+            <button onclick="location.reload()">Refresh Status</button>
+            <button class="button-red" onclick="forceFailure()">Trigger New Failure</button>
+            <button onclick="checkHealth()">Health Check</button>
+            <button class="button-green" onclick="clearHistory()">Clear History</button>
         </div>
         
         <div class="footer">
@@ -383,83 +379,76 @@ HTML_TEMPLATE = '''
     
     <script>
         function forceFailure() {
-            fetch('/fail')
-                .then(function(response) { 
-                    alert('Failure triggered - healing process started'); 
-                    location.reload();
-                })
-                .catch(function() {
-                    alert('Failure triggered - healing process started');
-                    location.reload();
-                });
+            if(confirm('Trigger a new failure? This will start the healing process.')) {
+                fetch('/fail')
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) { 
+                        alert(data.message); 
+                        location.reload();
+                    });
+            }
         }
         
         function checkHealth() {
             fetch('/health')
                 .then(function(response) { return response.json(); })
                 .then(function(data) { 
-                    alert('Status: ' + data.status + '\\nHealed failures: ' + data.healed_count); 
+                    alert('Status: ' + data.status + '\\nFailures: ' + data.failures + '\\nHealed: ' + data.healed_count); 
                 });
         }
         
         function clearHistory() {
-            fetch('/clear_history')
-                .then(function(response) { return response.json(); })
-                .then(function(data) {
-                    alert('History cleared');
-                    location.reload();
-                });
+            if(confirm('Clear healing history?')) {
+                fetch('/clear_history')
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        alert('History cleared');
+                        location.reload();
+                    });
+            }
         }
-        
-        // Auto-refresh every 5 seconds to show healing progress
-        setTimeout(function() {
-            location.reload();
-        }, 5000);
     </script>
 </body>
 </html>
 '''
 
-# Store healing data
-healing_events = []
-healed_successfully = 0
-
-def simulate_healing_process():
-    """Simulate the healing process with retries"""
-    global healing_events, healed_successfully, current_healing
+def start_healing_process():
+    """Start a new healing process"""
+    global healing_history, healed_successfully, current_failure, last_failure_time
     
     healing_data = {
         'in_progress': True,
         'retry_attempt': 1,
         'retry_count': 0,
         'start_time': datetime.now(),
-        'status': 'Healing started'
+        'status': 'Healing started',
+        'completed': False
     }
     
-    # Simulate 3 retry attempts
+    # Simulate retry attempts with delays
     for attempt in range(1, 4):
         healing_data['retry_attempt'] = attempt
         healing_data['status'] = f'Retry attempt {attempt}/3'
         
-        # Add to healing history
-        healing_events.insert(0, {
+        healing_history.insert(0, {
             'time': datetime.now().strftime("%H:%M:%S"),
             'type': 'RETRY',
             'message': f'Attempt {attempt} to recover',
             'retry_count': attempt
         })
         
-        # Simulate retry delay
-        time.sleep(0.5)
+        # Simulate delay (just for demo purposes)
+        # In real app, this would be actual retry logic
         
-        # 70% chance of success on retry
-        if random.random() < 0.7 or attempt == 3:  # Last attempt always succeeds
+        # 80% chance of success on retry, last attempt always succeeds
+        if attempt == 3 or random.random() < 0.8:
             healing_data['status'] = f'Successfully healed on attempt {attempt}'
             healing_data['retry_count'] = attempt
             healing_data['in_progress'] = False
+            healing_data['completed'] = True
             healed_successfully += 1
             
-            healing_events.insert(0, {
+            healing_history.insert(0, {
                 'time': datetime.now().strftime("%H:%M:%S"),
                 'type': 'HEALED',
                 'message': f'System recovered after {attempt} retries',
@@ -467,7 +456,7 @@ def simulate_healing_process():
             })
             break
         else:
-            healing_events.insert(0, {
+            healing_history.insert(0, {
                 'time': datetime.now().strftime("%H:%M:%S"),
                 'type': 'RETRY_FAILED',
                 'message': f'Attempt {attempt} failed, retrying...',
@@ -475,67 +464,93 @@ def simulate_healing_process():
             })
     
     # Keep only last 10 events
-    healing_events = healing_events[:10]
+    healing_history = healing_history[:10]
+    
+    # Mark that we have a failure that's being processed
+    current_failure = healing_data
+    last_failure_time = datetime.now()
     
     return healing_data
 
 @app.route('/')
 def hello():
-    global request_count, failure_count, current_healing, healed_successfully
+    global request_count, failure_count, current_failure, last_failure_time
     
     request_count += 1
     
-    # Check if we're currently in healing process
     healing_active = False
+    healing_completed = False
     healing_progress = 0
     retry_attempt = 0
     retry_count = 0
     retry_status = ''
     current_action = ''
     retry_timestamp = ''
-    show_healing_process = False
+    is_failure = False
+    message = "Pipeline running normally"
+    status_code = 200
     
-    # 20% chance of failure
-    is_failure = random.random() < 0.2
-    
-    if is_failure:
-        failure_count += 1
+    # Check if we have an active healing process
+    if current_failure:
+        healing_data = current_failure
         
-        # Simulate healing process
-        if current_healing is None or not current_healing.get('in_progress', False):
-            current_healing = simulate_healing_process()
-        
-        healing_active = current_healing.get('in_progress', False)
-        healing_progress = (current_healing.get('retry_attempt', 0) / 3) * 100
-        retry_attempt = current_healing.get('retry_attempt', 0)
-        retry_count = current_healing.get('retry_count', 0)
-        retry_status = current_healing.get('status', 'Healing in progress')
-        current_action = f'Retry {retry_attempt}/3' if healing_active else 'Healing complete'
-        retry_timestamp = current_healing.get('start_time', datetime.now()).strftime("%H:%M:%S")
-        show_healing_process = True
-        
-        # If healing is complete, clear current healing for next failure
-        if not healing_active:
-            message = f"System recovered after {retry_count} retry attempts"
-            status_code = 200
-            current_healing = None
-        else:
-            message = f"Failure detected - initiating healing (attempt {retry_attempt}/3)"
+        if healing_data.get('in_progress', False):
+            # Healing is still in progress
+            healing_active = True
+            is_failure = True
+            healing_progress = (healing_data.get('retry_attempt', 0) / 3) * 100
+            retry_attempt = healing_data.get('retry_attempt', 0)
+            retry_count = healing_data.get('retry_count', 0)
+            retry_status = healing_data.get('status', 'Healing in progress')
+            current_action = f'Retry {retry_attempt}/3'
+            retry_timestamp = healing_data.get('start_time', datetime.now()).strftime("%H:%M:%S")
+            message = f"Failure detected - healing in progress (attempt {retry_attempt}/3)"
             status_code = 500
+        elif healing_data.get('completed', False):
+            # Healing completed successfully
+            healing_completed = True
+            healing_progress = 100
+            retry_count = healing_data.get('retry_count', 0)
+            retry_status = healing_data.get('status', 'Healing complete')
+            current_action = 'System recovered'
+            retry_timestamp = healing_data.get('start_time', datetime.now()).strftime("%H:%M:%S")
+            message = f"System healed after {retry_count} retries"
+            status_code = 200
+            
+            # Clear the current failure after showing completion once
+            # We'll keep it for this request to display, but mark to clear
+            if 'displayed' not in healing_data:
+                healing_data['displayed'] = True
+            else:
+                current_failure = None
     else:
-        message = "Pipeline running normally"
-        status_code = 200
-        # Reset healing if no failure
-        if current_healing:
-            current_healing = None
+        # No active healing, normal operation with random failure chance
+        # Only trigger new failure if no healing is in progress
+        if random.random() < 0.2:  # 20% chance of failure
+            current_failure = start_healing_process()
+            healing_active = True
+            is_failure = True
+            failure_count += 1
+            
+            healing_data = current_failure
+            healing_progress = (healing_data.get('retry_attempt', 0) / 3) * 100
+            retry_attempt = healing_data.get('retry_attempt', 0)
+            retry_count = healing_data.get('retry_count', 0)
+            retry_status = healing_data.get('status', 'Healing in progress')
+            current_action = f'Retry {retry_attempt}/3'
+            retry_timestamp = healing_data.get('start_time', datetime.now()).strftime("%H:%M:%S")
+            message = f"Failure detected - starting healing (attempt {retry_attempt}/3)"
+            status_code = 500
+        else:
+            message = "Pipeline running normally"
+            status_code = 200
     
-    # Calculate success rate
+    # Calculate statistics
     if request_count > 0:
         success_rate = round(((request_count - failure_count) / request_count) * 100, 1)
     else:
         success_rate = 100
     
-    # Calculate healing rate (how many failures were healed)
     if failure_count > 0:
         healing_rate = round((healed_successfully / failure_count) * 100, 1)
     else:
@@ -546,14 +561,14 @@ def hello():
         message=message,
         is_failure=is_failure,
         healing_active=healing_active,
+        healing_completed=healing_completed,
         healing_progress=healing_progress,
         retry_attempt=retry_attempt,
         retry_count=retry_count,
         retry_status=retry_status,
         current_action=current_action,
         retry_timestamp=retry_timestamp,
-        show_healing_process=show_healing_process,
-        healing_history=healing_events[:5],
+        healing_history=healing_history[:5],
         total_requests=request_count,
         failures=failure_count,
         healed_count=healed_successfully,
@@ -569,20 +584,20 @@ def health():
         "timestamp": datetime.now().isoformat(),
         "requests": request_count,
         "failures": failure_count,
-        "healed_count": healed_successfully
+        "healed_count": healed_successfully,
+        "healing_active": current_failure is not None
     }), 200
 
 @app.route('/fail')
 def force_fail():
-    global failure_count, current_healing
+    global failure_count, current_failure
     failure_count += 1
-    # Reset healing to simulate fresh failure
-    current_healing = simulate_healing_process()
+    current_failure = start_healing_process()
     return jsonify({
         "status": "failure",
         "message": "Manual failure triggered - healing started",
         "healing_started": True
-    }), 500
+    }), 200
 
 @app.route('/stats')
 def stats():
@@ -596,28 +611,38 @@ def stats():
         "failures": failure_count,
         "healed_count": healed_successfully,
         "success_rate": success_rate,
-        "healing_events": len(healing_events)
+        "healing_events": len(healing_history)
     }), 200
 
 @app.route('/clear_history')
 def clear_history():
-    global healing_events
-    healing_events = []
+    global healing_history
+    healing_history = []
     return jsonify({"message": "Healing history cleared"}), 200
 
 @app.route('/reset')
 def reset():
-    global request_count, failure_count, healing_events, healed_successfully, current_healing
+    global request_count, failure_count, healing_history, healed_successfully, current_failure
     request_count = 0
     failure_count = 0
-    healing_events = []
+    healing_history = []
     healed_successfully = 0
-    current_healing = None
+    current_failure = None
     return jsonify({"message": "All stats reset"}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print("Starting pipeline monitor with healing visualization on http://localhost:" + str(port))
-    print("Health check: http://localhost:" + str(port) + "/health")
-    print("Stats: http://localhost:" + str(port) + "/stats")
+    print("\n" + "="*50)
+    print("Pipeline Monitor with Healing Visualization")
+    print("="*50)
+    print(f"Running on: http://localhost:{port}")
+    print(f"Health check: http://localhost:{port}/health")
+    print(f"Statistics: http://localhost:{port}/stats")
+    print("\nHow it works:")
+    print("- 20% random chance of failure on each page load")
+    print("- When failure occurs, healing process starts automatically")
+    print("- System attempts up to 3 retries")
+    print("- Refresh page to see healing progress")
+    print("- Click 'Trigger New Failure' to manually start healing")
+    print("="*50 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False)
