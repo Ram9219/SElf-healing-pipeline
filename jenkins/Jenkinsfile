@@ -8,26 +8,26 @@ pipeline {
     
     stages {
         
-        stage('🎯 Clone Repository') {
+        stage(' Clone Repository') {
             steps {
                 echo "Cloning repository from GitHub..."
                 retry(2) {
                     git branch: 'main', 
                         url: 'https://github.com/Ram9219/self-healing-pipeline.git'
                 }
-                echo "✅ Repository cloned successfully!"
+                echo " Repository cloned successfully!"
             }
         }
         
-        stage('🐳 Build Docker Image') {
+        stage(' Build Docker Image') {
             steps {
                 echo "Building Docker image..."
                 bat "docker build -t %DOCKER_IMAGE%:latest ./app"
-                echo "✅ Build completed!"
+                echo " Build completed!"
             }
         }
         
-        stage('🧪 Run Tests') {
+        stage(' Run Tests') {
             steps {
                 echo "Cleaning up any existing test container..."
                 bat "(docker stop test-%APP_NAME% || exit 0) > nul 2>&1"
@@ -42,7 +42,7 @@ pipeline {
                 echo "Testing container health..."
                 bat "curl -f http://localhost:9090/health"
                 
-                echo "✅ All tests passed!"
+                echo " All tests passed!"
                 
                 echo "Cleaning up test container..."
                 bat "(docker stop test-%APP_NAME% || exit 0) > nul 2>&1"
@@ -50,23 +50,23 @@ pipeline {
             }
         }
         
-        stage('📤 Push to Docker Hub') {
+        stage(' Push to Docker Hub') {
             steps {
                 echo "Pushing image to Docker Hub..."
                 withDockerRegistry([credentialsId: 'ram9219', url: 'https://index.docker.io/v1/']) {
                     bat "docker push %DOCKER_IMAGE%:latest"
                 }
-                echo "✅ Image pushed successfully!"
+                echo " Image pushed successfully!"
             }
         }
         
-        stage('🚀 Deploy Application') {
+        stage(' Deploy Application') {
             steps {
                 echo "Deploying application..."
                 bat "(docker-compose -f docker-compose.yml down || exit 0) > nul 2>&1"
                 bat "docker-compose -f docker-compose.yml up -d"
-                echo "✅ Deployment complete!"
-                echo "📍 Application: http://localhost:5000"
+                echo " Deployment complete!"
+                echo " Application: http://localhost:5000"
             }
         }
         
@@ -76,7 +76,7 @@ pipeline {
                 bat "ping -n 11 127.0.0.1 > nul"
                 echo "Checking health endpoint..."
                 bat "curl -f http://localhost:5000/health"
-                echo "✅ Application is healthy!"
+                echo " Application is healthy!"
             }
         }
     }
@@ -87,8 +87,8 @@ pipeline {
             ┌─────────────────────────────────────────────────────────┐
             │  ✅ SELF-HEALING PIPELINE SUCCEEDED! ✅                 │
             │                                                          │
-            │  🚀 Application: http://localhost:5000                  │
-            │  ❤️ Health check: http://localhost:5000/health         │
+            │   Application: http://localhost:5000                  │
+            │   Health check: http://localhost:5000/health         │
             │                                                          │
             │  ✨ Features demonstrated:                              │
             │  • Automated Docker builds                              │
@@ -101,7 +101,7 @@ pipeline {
         failure {
             echo """
             ┌─────────────────────────────────────────────────────────┐
-            │  ❌ PIPELINE FAILED ❌                                   │
+            │   PIPELINE FAILED                                    │
             └─────────────────────────────────────────────────────────┘
             """
         }
